@@ -7,6 +7,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"flag"
+	"io/ioutil"
 	"log"
 	"math/big"
 	"os"
@@ -15,6 +16,7 @@ import (
 )
 
 var (
+	chained = flag.Bool("chained", false, "Concatenate the CA cert to the server cert, used for nginx")
 	outdir  = flag.String("outdir", "/tmp", "Specify output directory, default /tmp")
 	purpose = flag.String("purpose", "nginx-web", "Specify usage purpose: nginx-web | ? ")
 )
@@ -107,11 +109,12 @@ func main() {
 		log.Fatalf("error creating certificate %s, %v", clientTemplate.Subject.CommonName, err)
 	}
 
+	sname := "nginx"
 	err = writeCertAndKey(caCert, caKey, "ca")
 	if err != nil {
 		log.Fatalf("error writing certificate/key %v", err)
 	}
-	err = writeCertAndKey(serverCert, serverKey, "server")
+	err = writeCertAndKey(serverCert, serverKey, sname)
 	if err != nil {
 		log.Fatalf("error writing certificate/key %v", err)
 	}
@@ -119,6 +122,29 @@ func main() {
 	err = writeCertAndKey(clientCert, clientKey, "client")
 	if err != nil {
 		log.Fatalf("error writing certificate/key %v", err)
+	}
+
+	if *chained {
+		caFile, err := os.OpenFile(path.Join(*outdir, "ca.crt"), os.O_RDONLY, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer caFile.Close()
+
+		serverCertFile, err := os.OpenFile(path.Join(*outdir, sname+".crt"), os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer serverCertFile.Close()
+
+		caBytes, err := ioutil.ReadAll(caFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if _, err := serverCertFile.Write(caBytes); err != nil {
+			log.Fatal(err)
+		}
 	}
 }
 
@@ -145,7 +171,7 @@ func writeCertAndKey(cert *x509.Certificate, key *rsa.PrivateKey, filename strin
 	if err != nil {
 		return err
 	}
-	log.Printf("-- wrote %s", c)
+	log.Printf("-- wrote %s", k)
 	return nil
 }
 
